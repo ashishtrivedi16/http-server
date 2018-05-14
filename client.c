@@ -1,11 +1,3 @@
-//
-//  client.c
-//  Web-server-v2
-//
-//  Created by Ashish Trivedi on 13/05/18.
-//  Copyright © 2018 Ashish Trivedi. All rights reserved.
-//
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
