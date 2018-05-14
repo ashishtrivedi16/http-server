@@ -1,33 +1,105 @@
-//
-//  server.c
-//  Web-server-v2
-//
-//  Created by Ashish Trivedi on 13/05/18.
-//  Copyright © 2018 Ashish Trivedi. All rights reserved.
-//
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <netinet/in.h>
-#include <pthread.h>
-#include <ctype.h>
-#include <sys/stat.h>
-#include <errno.h>
+#include <netinet/in.h> 
+#include <pthread.h> // Used for creating threads
+#include <ctype.h> // Used for isspace() function
+#include <errno.h> // error reporting using stderror(errno)
 
 #define SERVER_STRING "Server: athttp-server/2.0\r\n"
 
+int startup(u_short port);
+void not_found(int client);
+void content(int client, FILE *resource);
 void *acceptRequest(void * client);
 void errorMessage(const char* msg);
 int get_line(int sock, char *buf, int size);
-int startup(u_short port);
 void serve_file(int client, const char *filename);
-void not_found(int client);
 void headers(int client, const char *filename);
-void cat(int client, FILE *resource);
+
+/**********************************************************************/
+/* Just a helping functions for error reporting using perror */
+/**********************************************************************/
+void errorMessage(const char* msg){
+    perror(msg);
+}
+
+/**********************************************************************/
+/* Send a regular file to the client.  Use headers, and report
+ * errors to client if they occur. */
+/**********************************************************************/
+void serve_file(int client, const char *filename) {
+    FILE *resource = NULL;
+    resource = fopen(filename, "r");
+    if (resource == NULL){
+        printf("%s\n", strerror(errno));
+        not_found(client);
+    } else {
+        headers(client, filename);
+        content(client, resource);
+    }
+    fclose(resource);
+}
+
+/**********************************************************************/
+/* Return the informational HTTP headers about a file. */
+/**********************************************************************/
+void headers(int client, const char *filename) {
+    char buf[1024];
+    (void)filename;  /* could use filename to determine file type */
+    
+    strcpy(buf, "HTTP/1.0 200 OK\r\n");
+    send(client, buf, strlen(buf), 0);
+    strcpy(buf, SERVER_STRING);
+    send(client, buf, strlen(buf), 0);
+    sprintf(buf, "Content-Type: text/html\r\n");
+    send(client, buf, strlen(buf), 0);
+    strcpy(buf, "\r\n");
+    send(client, buf, strlen(buf), 0);
+}
+
+/**********************************************************************/
+/* Put the entire contents of a file out on a socket */
+/**********************************************************************/
+void content(int client, FILE *resource) {
+    char buf[1024];
+    fgets(buf, sizeof(buf), resource);
+    while (!feof(resource))
+    {
+        send(client, buf, strlen(buf), 0);
+        fgets(buf, sizeof(buf), resource);
+    }
+}
+
+/**********************************************************************/
+/* Give a client a 404 not found 
+us message. */
+/**********************************************************************/
+void not_found(int client) {
+    char buf[1024];
+    
+    sprintf(buf, "HTTP/1.0 404 NOT FOUND\r\n");
+    send(client, buf, strlen(buf), 0);
+    sprintf(buf, SERVER_STRING);
+    send(client, buf, strlen(buf), 0);
+    sprintf(buf, "Content-Type: text/html\r\n");
+    send(client, buf, strlen(buf), 0);
+    sprintf(buf, "\r\n");
+    send(client, buf, strlen(buf), 0);
+    sprintf(buf, "<HTML><TITLE>Not Found</TITLE>\r\n");
+    send(client, buf, strlen(buf), 0);
+    sprintf(buf, "<BODY><P>The server could not fulfill\r\n");
+    send(client, buf, strlen(buf), 0);
+    sprintf(buf, "your request because the resource specified\r\n");
+    send(client, buf, strlen(buf), 0);
+    sprintf(buf, "is unavailable or nonexistent.\r\n");
+    send(client, buf, strlen(buf), 0);
+    sprintf(buf, "</BODY></HTML>\r\n");
+    send(client, buf, strlen(buf), 0);
+}
 
 /**********************************************************************/
 /* Get a line from a socket, whether the line ends in a newline,
@@ -71,8 +143,7 @@ int get_line(int sock, char *buff, int size){
 }
 
 /**********************************************************************/
-/* A request has caused a call to accept() on the server port to
- * return.
+/* A request causes a call to accept() on the server port.
  * This function is executed by a seperate thread which is created when
  * a connection is received */
 /**********************************************************************/
@@ -84,8 +155,8 @@ void *acceptRequest(void * client) {
     size_t i, j;
     int client_socket = (int)client;
     numchars = get_line(client_socket, buff, sizeof(buff));
-    /* Find out where everything is */
-    
+	
+    /* This section gets the methods used */
     i = 0; j = 0;
     while (!isspace((int)buff[j]) && (i < sizeof(method) - 1))
     {
@@ -94,8 +165,8 @@ void *acceptRequest(void * client) {
     }
     method[i] = '\0';
     
+	/* This section gets the url requested */
     char *url  = NULL;
-    
     if(strtok(buff, " "))
     {
         url = strtok(NULL, " ");
@@ -103,93 +174,21 @@ void *acceptRequest(void * client) {
             url = strdup(path);
     }
     
+	/* This section identifies the path of file requested */
     sprintf(path, "htdocs/%s", url);
     if (path[strlen(path) - 1] == '/')
         strcat(path, "index.html");
-    
-    serve_file(client_socket, path); // serves file
+    /* serve_file function serves the requested file */
+    serve_file(client_socket, path);
     close(client_socket);
     return 0;
 }
 
-/**********************************************************************/
-/* Send a regular file to the client.  Use headers, and report
- * errors to client if they occur.
- */
-/**********************************************************************/
-void serve_file(int client, const char *filename) {
-    FILE *resource = NULL;
-    resource = fopen(filename, "r");
-    if (resource == NULL){
-        printf("%s\n", strerror(errno));
-        not_found(client);
-    } else {
-        headers(client, filename);
-        cat(client, resource);
-    }
-    fclose(resource);
-}
-
-/**********************************************************************/
-/* Give a client a 404 not found status message. */
-/**********************************************************************/
-void not_found(int client) {
-    char buf[1024];
-    
-    sprintf(buf, "HTTP/1.0 404 NOT FOUND\r\n");
-    send(client, buf, strlen(buf), 0);
-    sprintf(buf, SERVER_STRING);
-    send(client, buf, strlen(buf), 0);
-    sprintf(buf, "Content-Type: text/html\r\n");
-    send(client, buf, strlen(buf), 0);
-    sprintf(buf, "\r\n");
-    send(client, buf, strlen(buf), 0);
-    sprintf(buf, "<HTML><TITLE>Not Found</TITLE>\r\n");
-    send(client, buf, strlen(buf), 0);
-    sprintf(buf, "<BODY><P>The server could not fulfill\r\n");
-    send(client, buf, strlen(buf), 0);
-    sprintf(buf, "your request because the resource specified\r\n");
-    send(client, buf, strlen(buf), 0);
-    sprintf(buf, "is unavailable or nonexistent.\r\n");
-    send(client, buf, strlen(buf), 0);
-    sprintf(buf, "</BODY></HTML>\r\n");
-    send(client, buf, strlen(buf), 0);
-}
-
-/**********************************************************************/
-/* Return the informational HTTP headers about a file. */
-/**********************************************************************/
-void headers(int client, const char *filename) {
-    char buf[1024];
-    (void)filename;  /* could use filename to determine file type */
-    
-    strcpy(buf, "HTTP/1.0 200 OK\r\n");
-    send(client, buf, strlen(buf), 0);
-    strcpy(buf, SERVER_STRING);
-    send(client, buf, strlen(buf), 0);
-    sprintf(buf, "Content-Type: text/html\r\n");
-    send(client, buf, strlen(buf), 0);
-    strcpy(buf, "\r\n");
-    send(client, buf, strlen(buf), 0);
-}
-
-/**********************************************************************/
-/* Put the entire contents of a file out on a socket */
-/**********************************************************************/
-void cat(int client, FILE *resource) {
-    char buf[1024];
-    fgets(buf, sizeof(buf), resource);
-    while (!feof(resource))
-    {
-        send(client, buf, strlen(buf), 0);
-        fgets(buf, sizeof(buf), resource);
-    }
-}
 /********************************************************************/
-/*
- * Creates socket and starts listening on given port
- * bzero function zeroes various feild in server_addr struct
- */
+/* Creates socket and starts listening on given port
+ * bzero function zeroes various feild in server_addr struct 
+ * This function basically implements the create socket, bind socket,
+ * and listen function. */
 /********************************************************************/
 int startup(u_short port){
     /* Socket creating */
@@ -206,11 +205,13 @@ int startup(u_short port){
     server_addr.sin_port = htons(9001);
     server_addr.sin_addr.s_addr = INADDR_ANY;
     
+	/* Binding */
     if (bind(serverfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
         errorMessage("Error in connection");
         return 0;
     }
     
+	/* Listening */
     if(listen(serverfd, 5) < 0){
         errorMessage("Error listening");
         return 0;
@@ -219,15 +220,6 @@ int startup(u_short port){
     return serverfd;
 }
 
-/**********************************************************************/
-/* Just a helping functions for error reporting using perror
- */
-/**********************************************************************/
-void errorMessage(const char* msg){
-    perror(msg);
-}
-
-/********************************************************************/
 /********************************************************************/
 int main(){
     int server_socket = -1;
@@ -245,8 +237,9 @@ int main(){
         if (clientfd < 0) {
             errorMessage("Error accepting connection");
         }
+		
         if (pthread_create(&newthread , NULL, acceptRequest, (void *)clientfd) != 0)
             errorMessage("pthread creation");
-        }
+     }
     return 0;
 }
