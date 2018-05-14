@@ -6,7 +6,7 @@ This is a basic http web server which implements the http protocol.
 
 To start the server just compile it on a linux terminal using the folling command
 ```c
-gcc -o server server.c
+gcc -o server server.c -lpthread
 ./server
 ```
 
